@@ -6,6 +6,7 @@
 //
 
 import UIKit
+import Combine
 
 class FrameworkListViewController: UIViewController {
     
@@ -17,13 +18,37 @@ class FrameworkListViewController: UIViewController {
     }
     
     var dataSource: UICollectionViewDiffableDataSource<Section, Item>!
-    
-    let list: [AppleFramework] = AppleFramework.list
-    
+        
+    //Combine
+    var subscriptions = Set<AnyCancellable>()
+    let didSelect = PassthroughSubject<AppleFramework,Never>()
+    @Published var list: [AppleFramework] = AppleFramework.list
     // Data, Presentation, Layout
     override func viewDidLoad() {
         super.viewDidLoad()
         
+        configureCollectionView()
+        bind()
+    }
+    private func bind(){
+        // input: 사용자 인풋 받아서 처리
+        didSelect
+            .receive(on: RunLoop.main) //메인스레드에서 작동
+            .sink { [self] framework in
+            let sb = UIStoryboard(name: "Detail", bundle: nil)
+            let vc = sb.instantiateViewController(withIdentifier: "FrameworkDetailViewController") as! FrameworkDetailViewController
+            vc.framework = framework
+            
+            present(vc, animated: true)
+        }.store(in: &subscriptions)
+        // output: 데이터 변경에 따른 ui상태 업데이트
+        $list
+            .receive(on: RunLoop.main)
+            .sink { [self] list in
+            appluSectionItems(list)
+        }.store(in: &subscriptions)
+    }
+    private func configureCollectionView(){
         // presentation
         dataSource = UICollectionViewDiffableDataSource<Section, Item>(collectionView: collectionView, cellProvider: { collectionView, indexPath, item in
             guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "FrameworkCell", for: indexPath) as? FrameworkCell else {
@@ -32,17 +57,15 @@ class FrameworkListViewController: UIViewController {
             cell.configure(item)
             return cell
         })
-        
-        // data
-        var snapshot = NSDiffableDataSourceSnapshot<Section, Item>()
-        snapshot.appendSections([.main])
-        snapshot.appendItems(list, toSection: .main)
-        dataSource.apply(snapshot)
-        
         // layer
         collectionView.collectionViewLayout = layout()
-        
         collectionView.delegate = self
+    }
+    private func appluSectionItems(_ items:[Item],to section:Section = .main) {
+        var snapshot = NSDiffableDataSourceSnapshot<Section, Item>()
+        snapshot.appendSections([section])
+        snapshot.appendItems(items, toSection: .main)
+        dataSource.apply(snapshot)
     }
     
     private func layout() -> UICollectionViewCompositionalLayout {
@@ -69,11 +92,6 @@ extension FrameworkListViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         let framework = list[indexPath.item]
         print(">>> selected: \(framework.name)")
-        
-        let sb = UIStoryboard(name: "Detail", bundle: nil)
-        let vc = sb.instantiateViewController(withIdentifier: "FrameworkDetailViewController") as! FrameworkDetailViewController
-        vc.framework = framework
-        
-        present(vc, animated: true)
+        didSelect.send(framework)
     }
 }
